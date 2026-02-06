@@ -23,6 +23,21 @@ export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
 poetry run python -m litellm_observatory.server
 ```
 
+### Run Tests
+
+```bash
+# Run all tests
+poetry run pytest
+
+# Run with verbose output
+poetry run pytest -v
+
+# Run a specific test file
+poetry run pytest tests/test_documentation_coverage.py
+```
+
+**Note**: Always run tests before pushing changes to ensure everything passes.
+
 ## API Usage
 
 ### Run a Test

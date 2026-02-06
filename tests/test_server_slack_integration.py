@@ -45,8 +45,8 @@ def test_run_test_slack_integration(client):
                 "models": ["gpt-4"],
             }
 
-            # Mock authentication
-            with patch("litellm_observatory.server.verify_api_key", return_value="authenticated"):
+            # Mock authentication - patch get_api_key_from_env to return None (skips auth)
+            with patch("litellm_observatory.auth.get_api_key_from_env", return_value=None):
                 response = client.post("/run-test", json=request_data)
 
             # Verify immediate response
@@ -74,4 +74,5 @@ def test_run_test_slack_integration(client):
                 failure_rate=0.005,
                 total_requests=1000,
                 duration_hours=3.0,
+                error_message=None,
             )
