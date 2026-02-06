@@ -3,7 +3,7 @@
 import os
 from typing import Optional
 
-from fastapi import Header, HTTPException, Security
+from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 # API key header name
