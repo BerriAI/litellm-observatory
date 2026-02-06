@@ -68,3 +68,6 @@ All endpoints require the `X-LiteLLM-Observatory-API-Key` header.
 
 - [Test Coverage](docs/TEST_COVERAGE.md) - What each test suite validates in LiteLLM deployments
 - [Adding a New Test Suite](docs/ADDING_TEST_SUITES.md) - Guide for creating custom test suites
+- [API Reference](docs/API_REFERENCE.md) - Complete API documentation with request/response examples
+- [Environment Variables](docs/ENVIRONMENT_VARIABLES.md) - Configuration variables reference
+- [Architecture](ARCHITECTURE.md) - Project structure and component overview
