@@ -27,7 +27,7 @@ async def root(_: str = Depends(verify_api_key)):
 
 
 @app.get("/health")
-async def health():
+async def health(_: str = Depends(verify_api_key)):
     """Health check endpoint."""
     return {"status": "healthy"}
 
