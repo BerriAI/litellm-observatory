@@ -6,9 +6,9 @@ Testing orchestrator for LiteLLM deployments. Run test suites against your LiteL
 
 
 
-> **Note for Developers Using AI Assistants**: If you're using AI coding assistants (like Cursor), make sure they reference `.cursorrules` for project-specific patterns and guidelines.
-
 ## Quick Start
+
+> **Note for Developers Using AI Assistants**: If you're using AI coding assistants (like Cursor), make sure they reference `.cursorrules` for project-specific patterns and guidelines.
 
 ### Installation
 
