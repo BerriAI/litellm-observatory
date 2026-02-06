@@ -56,22 +56,6 @@ curl -X POST http://localhost:8000/run-test \
 
 The endpoint returns immediately. Test results are sent to Slack when complete.
 
-## Available Test Suites
-
-### TestOAIAzureRelease
-
-- **Duration**: 3 hours (default)
-- **Purpose**: Validates OpenAI/Azure provider reliability, catches HTTP client lifecycle regressions
-- **Failure Threshold**: < 1% (default, configurable)
-- **Use Case**: Production release validation, regression detection
-
-### TestMockSingleRequest
-
-- **Duration**: < 1 second
-- **Purpose**: Quick connectivity validation - makes a single real HTTP request to verify deployment is reachable
-- **Failure Threshold**: N/A (pass/fail based on single request)
-- **Use Case**: Quick validation before running longer tests, connectivity checks
-
 ## Endpoints
 
 - `GET /` - API info
