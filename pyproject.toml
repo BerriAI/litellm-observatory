@@ -9,6 +9,7 @@ packages = [{include = "litellm_observatory"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
+httpx = "^0.25.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0.0"
