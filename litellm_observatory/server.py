@@ -44,7 +44,6 @@ async def run_test(
 
     Only test suites registered in TEST_SUITE_REGISTRY can be executed.
     """
-    # Validate test suite is in registry - fail early if not
     if request.test_suite not in TEST_SUITE_REGISTRY:
         available_suites = list(TEST_SUITE_REGISTRY.keys())
         raise HTTPException(
@@ -55,17 +54,14 @@ async def run_test(
             ),
         )
 
-    # Get the test suite class (guaranteed to exist after validation)
     test_suite_class = TEST_SUITE_REGISTRY[request.test_suite]
 
-    # Prepare test parameters
     test_params = {
         "deployment_url": request.deployment_url,
         "api_key": request.api_key,
         "models": request.models,
     }
 
-    # Add optional parameters if provided
     if request.duration_hours is not None:
         test_params["duration_hours"] = request.duration_hours
     if request.max_failure_rate is not None:
@@ -73,7 +69,6 @@ async def run_test(
     if request.request_interval_seconds is not None:
         test_params["request_interval_seconds"] = request.request_interval_seconds
 
-    # Verify Slack webhook is configured
     if not slack_webhook.webhook_url:
         raise HTTPException(
             status_code=400,
@@ -84,28 +79,23 @@ async def run_test(
     async def run_test_and_notify():
         """Run the test suite in the background and send results via Slack."""
         try:
-            # Instantiate and run the test suite
             test_suite = test_suite_class(**test_params)
             results = await test_suite.run()
 
-            # Extract error message from results if test failed
             error_message = None
             if not results.get("test_passed", False):
-                # Try to extract error from detailed_results
                 detailed_results = results.get("detailed_results", {})
                 for model_results in detailed_results.values():
                     if isinstance(model_results, list):
                         for result in model_results:
                             if isinstance(result, dict) and result.get("error"):
                                 error_message = result.get("error")
-                                # If error is a dict, try to extract a message
                                 if isinstance(error_message, dict):
                                     error_message = error_message.get("message") or str(error_message)
                                 break
                         if error_message:
                             break
 
-            # Send Slack notification with results
             slack_webhook.send_test_result_notification(
                 test_name=results.get("test_name", request.test_suite),
                 deployment_url=request.deployment_url,
@@ -116,7 +106,6 @@ async def run_test(
                 error_message=error_message,
             )
         except Exception as e:
-            # Send error notification to Slack
             slack_webhook.send_message(
                 text=f"❌ Test execution failed: {str(e)}\n"
                 f"Test: {request.test_suite}\n"
@@ -125,10 +114,8 @@ async def run_test(
                 icon_emoji=":warning:",
             )
 
-    # Start test in background
     asyncio.create_task(run_test_and_notify())
 
-    # Return immediately
     return TestResultResponse(
         status="started",
         test_name=request.test_suite,

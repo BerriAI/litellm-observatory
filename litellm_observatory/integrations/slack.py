@@ -113,7 +113,6 @@ class SlackWebhook:
             },
         ]
 
-        # Add error message section if test failed and error is available
         if not test_passed and error_message:
             blocks.append(
                 {

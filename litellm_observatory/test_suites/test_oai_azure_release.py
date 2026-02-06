@@ -105,7 +105,6 @@ class TestOAIAzureRelease(BaseTestSuite):
         self.max_failure_rate = max_failure_rate
         self.request_interval_seconds = request_interval_seconds
 
-        # Track results
         self.results: Dict[str, List[Dict[str, Any]]] = {model: [] for model in models}
         self.start_time: Optional[datetime] = None
         self.end_time: Optional[datetime] = None
@@ -190,18 +189,14 @@ class TestOAIAzureRelease(BaseTestSuite):
         print(f"Test will run until: {end_time.isoformat()}")
         print(f"Maximum acceptable failure rate: {self.max_failure_rate * 100}%")
 
-        # Run requests until duration is reached
         model_index = 0
         while datetime.now() < end_time:
-            # Cycle through models
             model = self.models[model_index % len(self.models)]
             model_index += 1
 
-            # Make request
             result = await self._make_request(model)
             self.results[model].append(result)
 
-            # Print progress periodically
             if len(self.results[model]) % PROGRESS_REPORT_INTERVAL == 0:
                 elapsed = (datetime.now() - self.start_time).total_seconds() / 3600
                 total_requests = sum(len(results) for results in self.results.values())
@@ -210,12 +205,10 @@ class TestOAIAzureRelease(BaseTestSuite):
                     f"Current model: {model}"
                 )
 
-            # Wait before next request
             await asyncio.sleep(self.request_interval_seconds)
 
         self.end_time = datetime.now()
 
-        # Calculate statistics
         return self._calculate_results()
 
     def _calculate_results(self) -> Dict[str, Any]:
