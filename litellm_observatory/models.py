@@ -4,7 +4,11 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from litellm_observatory.test_suites import TestMock, TestOAIAzureRelease
+from litellm_observatory.test_suites import (
+    TestMock,
+    TestMockSingleRequest,
+    TestOAIAzureRelease,
+)
 
 
 class RunTestRequest(BaseModel):
@@ -37,4 +41,5 @@ class TestResultResponse(BaseModel):
 TEST_SUITE_REGISTRY = {
     "TestOAIAzureRelease": TestOAIAzureRelease,
     "TestMock": TestMock,
+    "TestMockSingleRequest": TestMockSingleRequest,
 }

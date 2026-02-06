@@ -88,6 +88,23 @@ async def run_test(
             test_suite = test_suite_class(**test_params)
             results = await test_suite.run()
 
+            # Extract error message from results if test failed
+            error_message = None
+            if not results.get("test_passed", False):
+                # Try to extract error from detailed_results
+                detailed_results = results.get("detailed_results", {})
+                for model_results in detailed_results.values():
+                    if isinstance(model_results, list):
+                        for result in model_results:
+                            if isinstance(result, dict) and result.get("error"):
+                                error_message = result.get("error")
+                                # If error is a dict, try to extract a message
+                                if isinstance(error_message, dict):
+                                    error_message = error_message.get("message") or str(error_message)
+                                break
+                        if error_message:
+                            break
+
             # Send Slack notification with results
             slack_webhook.send_test_result_notification(
                 test_name=results.get("test_name", request.test_suite),
@@ -96,6 +113,7 @@ async def run_test(
                 failure_rate=results.get("overall_failure_rate", 0.0),
                 total_requests=results.get("total_requests", 0),
                 duration_hours=results.get("duration_hours", 0.0),
+                error_message=error_message,
             )
         except Exception as e:
             # Send error notification to Slack

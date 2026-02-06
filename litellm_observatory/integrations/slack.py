@@ -64,6 +64,7 @@ class SlackWebhook:
         failure_rate: float,
         total_requests: int,
         duration_hours: float,
+        error_message: Optional[str] = None,
     ) -> bool:
         """
         Send a formatted test result notification to Slack.
@@ -75,6 +76,7 @@ class SlackWebhook:
             failure_rate: Overall failure rate (0.0 to 1.0)
             total_requests: Total number of requests made
             duration_hours: Test duration in hours
+            error_message: Optional error message if test failed
 
         Returns:
             True if notification was sent successfully, False otherwise
@@ -111,6 +113,18 @@ class SlackWebhook:
             },
         ]
 
+        # Add error message section if test failed and error is available
+        if not test_passed and error_message:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Error:*\n```{error_message}```",
+                    },
+                }
+            )
+
         text = (
             f"{status_emoji} {test_name} - {status_text}\n"
             f"Deployment: {deployment_url}\n"
@@ -118,6 +132,8 @@ class SlackWebhook:
             f"Total Requests: {total_requests:,}\n"
             f"Failure Rate: {failure_rate_percent:.2f}%"
         )
+        if not test_passed and error_message:
+            text += f"\n\nError: {error_message}"
 
         return self.send_message(
             text=text,
