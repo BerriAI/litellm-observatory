@@ -64,3 +64,7 @@ The endpoint returns immediately. Test results are sent to Slack when complete.
 - `POST /run-test` - Run a test suite
 
 All endpoints require the `X-LiteLLM-Observatory-API-Key` header.
+
+## Documentation
+
+- [Adding a New Test Suite](docs/ADDING_TEST_SUITES.md) - Guide for creating custom test suites
