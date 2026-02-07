@@ -21,6 +21,7 @@ Testing orchestrator for LiteLLM deployments. Run test suites against LiteLLM in
 ### Code Style
 - Keep docstrings concise - avoid obvious comments
 - Constants at top of file, self-explanatory names
+- Organize class methods: main/public methods first, then helper methods grouped by category with section comments
 
 ### API Response Pattern
 - HTTP calls from clients to Observatory endpoints should return immediately
