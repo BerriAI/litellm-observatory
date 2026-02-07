@@ -9,6 +9,7 @@ litellm-observatory/
 │   ├── server.py                 # FastAPI server with endpoints
 │   ├── models.py                 # Pydantic models for requests/responses
 │   ├── auth.py                   # API key authentication
+│   ├── queue.py                  # Test queue with concurrency control and duplicate detection
 │   ├── integrations/             # External integrations
 │   │   ├── __init__.py
 │   │   └── slack.py              # Slack webhook integration
@@ -50,6 +51,13 @@ litellm-observatory/
 - Optional authentication (skips if `OBSERVATORY_API_KEY` not set)
 - Validates `X-LiteLLM-Observatory-API-Key` header
 
+### `litellm_observatory/queue.py`
+- `TestQueue`: Manages test execution queue with concurrency control
+- Prevents duplicate test requests (same parameters)
+- Limits concurrent test execution (configurable via `MAX_CONCURRENT_TESTS`)
+- Tracks test status: queued, running, completed, failed
+- Provides queue status and running test information
+
 ### `litellm_observatory/integrations/slack.py`
 - `SlackWebhook` class for sending notifications
 - Formats test results into Slack messages
@@ -72,14 +80,21 @@ litellm-observatory/
    - API key (if `OBSERVATORY_API_KEY` is set)
    - Test suite exists in registry
    - Slack webhook is configured
-3. **Server creates background task** using `asyncio.create_task()`
-4. **Server returns immediately** with `{"status": "started"}` response
-5. **Background task**:
-   - Instantiates test suite class
+3. **Queue checks for duplicates**:
+   - Generates request ID from test parameters (test_suite, deployment_url, models, etc.)
+   - Returns 409 Conflict if identical test is already running or queued
+4. **Test is enqueued**:
+   - Added to queue if max concurrent tests reached
+   - Starts immediately if under concurrency limit
+5. **Server returns immediately** with `{"status": "queued"}` or `{"status": "started"}` response
+6. **Queue processor** (background):
+   - Manages concurrent test execution (respects `MAX_CONCURRENT_TESTS`)
+   - Instantiates test suite class when slot available
    - Runs test suite against deployment
    - Extracts results and error messages
    - Sends formatted notification to Slack
-6. **Slack notification** contains test results, failure rates, and error details
+   - Updates test status and cleans up resources
+7. **Slack notification** contains test results, failure rates, and error details
 
 ## Test Suite Execution
 
@@ -89,9 +104,36 @@ Test suites run asynchronously and make HTTP requests to LiteLLM deployments:
 - Track success/failure rates over time
 - Return structured results dictionary
 
+## Queue System
+
+The queue system manages test execution with the following features:
+
+### Concurrency Control
+- Maximum concurrent tests configurable via `MAX_CONCURRENT_TESTS` (default: 5)
+- Uses `asyncio.Semaphore` to enforce limits
+- Tests beyond the limit are queued and processed when slots become available
+
+### Duplicate Detection
+- Requests with identical parameters generate the same request ID
+- Duplicate detection based on: test_suite, deployment_url, api_key, models, and optional parameters
+- Prevents running the same test multiple times simultaneously
+- Returns 409 Conflict with information about the existing test
+
+### Queue Status
+- `GET /queue-status` endpoint provides real-time queue information
+- Shows: max concurrent tests, currently running count, queued count, recently completed
+- Lists all running tests with their parameters and start times
+
+### Test Lifecycle
+- **QUEUED**: Test is waiting for an available slot
+- **RUNNING**: Test is currently executing
+- **COMPLETED**: Test finished successfully
+- **FAILED**: Test encountered an error
+
 ## Background Task Management
 
 Tests run in background to avoid blocking HTTP responses:
 - Long-running tests (e.g., 3 hours) don't block the API
+- Queue ensures resource limits are respected
 - Results are delivered via Slack webhook
 - Errors are caught and sent to Slack with details

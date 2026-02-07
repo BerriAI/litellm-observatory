@@ -47,6 +47,8 @@ Health check endpoint.
 
 Run a test suite against a LiteLLM deployment. Returns immediately; results are sent to Slack when complete.
 
+**Note**: Tests are queued and executed with concurrency control. Duplicate requests (same test_suite, deployment_url, models, and parameters) are rejected with a 409 status code.
+
 **Request Body**:
 ```json
 {
@@ -80,7 +82,35 @@ Run a test suite against a LiteLLM deployment. Returns immediately; results are 
 **Error Responses**:
 - **400**: Invalid test suite name or Slack webhook not configured
 - **401**: Missing or invalid API key
+- **409**: Duplicate request - a test with identical parameters is already running or queued
 - **422**: Invalid request body format
+
+### `GET /queue-status`
+
+Get current queue status and information about running tests.
+
+**Response** (200 OK):
+```json
+{
+  "queue_status": {
+    "max_concurrent_tests": 5,
+    "currently_running": 2,
+    "queued": 3,
+    "recently_completed": 10
+  },
+  "running_tests": {
+    "abc123def456": {
+      "test_suite": "TestOAIAzureRelease",
+      "deployment_url": "https://your-litellm.com",
+      "models": ["gpt-4"],
+      "status": "running",
+      "started_at": "2024-01-15T10:30:00"
+    }
+  }
+}
+```
+
+---
 
 **Example**:
 ```bash

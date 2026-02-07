@@ -8,6 +8,7 @@ Testing orchestrator for LiteLLM deployments. Run test suites against LiteLLM in
 - **Adding Test Suites**: See `docs/ADDING_TEST_SUITES.md` for complete guide
 - **Test Coverage**: See `docs/TEST_COVERAGE.md` for available test suites
 - **API Reference**: See `docs/API_REFERENCE.md` for endpoint documentation
+- **Queue System**: See `docs/QUEUE_SYSTEM.md` for concurrency control and duplicate detection
 - **Environment Variables**: See `docs/ENVIRONMENT_VARIABLES.md` for configuration
 
 ## Key Patterns
@@ -26,8 +27,9 @@ Testing orchestrator for LiteLLM deployments. Run test suites against LiteLLM in
 ### API Response Pattern
 - HTTP calls from clients to Observatory endpoints should return immediately
 - Test results are delivered via integrations (currently Slack webhook), not HTTP responses
-- Use `asyncio.create_task()` to run tests in background
+- Tests are queued and executed via `TestQueue` with concurrency control
 - Never block HTTP responses waiting for test completion
+- Duplicate requests (same parameters) return 409 Conflict
 
 ### Testing
 - Always run `poetry run pytest` before committing

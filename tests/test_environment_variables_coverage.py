@@ -10,9 +10,9 @@ def _find_os_getenv_calls(directory: Path) -> set[str]:
     """Find all os.getenv() calls in Python files and extract environment variable names."""
     env_vars = set()
 
-    # Pattern to match os.getenv("VAR_NAME") or os.getenv('VAR_NAME')
-    # This handles both single and double quotes, and accounts for potential whitespace
-    pattern = r'os\.getenv\s*\(\s*["\']([^"\']+)["\']\s*\)'
+    # Pattern to match os.getenv("VAR_NAME") or os.getenv("VAR_NAME", "default")
+    # This handles both single and double quotes, and accounts for potential whitespace and default values
+    pattern = r'os\.getenv\s*\(\s*["\']([^"\']+)["\']'
 
     for py_file in directory.rglob("*.py"):
         # Skip test files and __pycache__

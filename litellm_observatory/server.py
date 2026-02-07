@@ -1,12 +1,13 @@
 """FastAPI server for running test suites against LiteLLM deployments."""
 
-import asyncio
+import os
 
 from fastapi import Depends, FastAPI, HTTPException
 
 from litellm_observatory.auth import verify_api_key
 from litellm_observatory.integrations import SlackWebhook
 from litellm_observatory.models import RunTestRequest, TestResultResponse, TEST_SUITE_REGISTRY
+from litellm_observatory.queue import TestQueue
 
 app = FastAPI(
     title="LiteLLM Observatory",
@@ -14,6 +15,10 @@ app = FastAPI(
     version="0.1.0",
 )
 slack_webhook = SlackWebhook()
+
+# Initialize test queue with configurable max concurrent tests
+MAX_CONCURRENT_TESTS = int(os.getenv("MAX_CONCURRENT_TESTS", "5"))
+test_queue = TestQueue(max_concurrent_tests=MAX_CONCURRENT_TESTS)
 
 
 @app.get("/")
@@ -43,6 +48,8 @@ async def run_test(
     The test will run for the specified duration and return results.
 
     Only test suites registered in TEST_SUITE_REGISTRY can be executed.
+    Duplicate requests (same test_suite, deployment_url, models, and parameters) are detected
+    and will return information about the existing test.
     """
     if request.test_suite not in TEST_SUITE_REGISTRY:
         available_suites = list(TEST_SUITE_REGISTRY.keys())
@@ -52,6 +59,24 @@ async def run_test(
                 f"Test suite '{request.test_suite}' is not available. "
                 f"Only the following test suites can be executed: {available_suites}"
             ),
+        )
+
+    # Check for duplicate requests
+    if test_queue.is_duplicate(request):
+        duplicate_info = test_queue.get_duplicate_info(request)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "A test with identical parameters is already running or queued.",
+                "duplicate_info": duplicate_info,
+            },
+        )
+
+    if not slack_webhook.webhook_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Slack webhook URL must be configured (SLACK_WEBHOOK_URL environment variable). "
+            "Test results will be sent via Slack notification.",
         )
 
     test_suite_class = TEST_SUITE_REGISTRY[request.test_suite]
@@ -69,14 +94,7 @@ async def run_test(
     if request.request_interval_seconds is not None:
         test_params["request_interval_seconds"] = request.request_interval_seconds
 
-    if not slack_webhook.webhook_url:
-        raise HTTPException(
-            status_code=400,
-            detail="Slack webhook URL must be configured (SLACK_WEBHOOK_URL environment variable). "
-            "Test results will be sent via Slack notification.",
-        )
-
-    async def run_test_and_notify():
+    async def run_test_and_notify(queued_test):
         """Run the test suite in the background and send results via Slack."""
         try:
             test_suite = test_suite_class(**test_params)
@@ -97,8 +115,8 @@ async def run_test(
                             break
 
             slack_webhook.send_test_result_notification(
-                test_name=results.get("test_name", request.test_suite),
-                deployment_url=request.deployment_url,
+                test_name=results.get("test_name", queued_test.request.test_suite),
+                deployment_url=queued_test.request.deployment_url,
                 test_passed=results.get("test_passed", False),
                 failure_rate=results.get("overall_failure_rate", 0.0),
                 total_requests=results.get("total_requests", 0),
@@ -108,24 +126,42 @@ async def run_test(
         except Exception as e:
             slack_webhook.send_message(
                 text=f"❌ Test execution failed: {str(e)}\n"
-                f"Test: {request.test_suite}\n"
-                f"Deployment: {request.deployment_url}",
+                f"Test: {queued_test.request.test_suite}\n"
+                f"Deployment: {queued_test.request.deployment_url}",
                 username="LiteLLM Observatory",
                 icon_emoji=":warning:",
             )
 
-    asyncio.create_task(run_test_and_notify())
+    # Enqueue the test
+    queued_test = await test_queue.enqueue(request, run_test_and_notify)
+
+    queue_status = test_queue.get_queue_status()
+    status_message = "queued"
+    if queued_test.status.value == "running":
+        status_message = "started"
 
     return TestResultResponse(
-        status="started",
+        status=status_message,
         test_name=request.test_suite,
         results={
-            "message": "Test started. Results will be sent via Slack webhook when complete.",
+            "message": f"Test {status_message}. Results will be sent via Slack webhook when complete.",
             "deployment_url": request.deployment_url,
             "models": request.models,
             "estimated_duration_hours": test_params.get("duration_hours", 3.0),
+            "request_id": queued_test.request_id,
+            "queue_position": queue_status["queued"],
+            "currently_running": queue_status["currently_running"],
         },
     )
+
+
+@app.get("/queue-status")
+async def queue_status(_: str = Depends(verify_api_key)):
+    """Get current queue status and running tests."""
+    return {
+        "queue_status": test_queue.get_queue_status(),
+        "running_tests": test_queue.get_running_tests(),
+    }
 
 
 if __name__ == "__main__":

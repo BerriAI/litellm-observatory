@@ -60,13 +60,14 @@ curl -X POST http://localhost:8000/run-test \
   }'
 ```
 
-The endpoint returns immediately. Test results are sent to Slack when complete.
+The endpoint returns immediately. Tests are queued and executed with concurrency control (default: 5 concurrent tests). Duplicate requests are rejected with a 409 status. Test results are sent to Slack when complete.
 
 ## Endpoints
 
 - `GET /` - API info
 - `GET /health` - Health check
-- `POST /run-test` - Run a test suite
+- `POST /run-test` - Run a test suite (queued with concurrency control)
+- `GET /queue-status` - Get queue status and running tests
 
 All endpoints require the `X-LiteLLM-Observatory-API-Key` header.
 
@@ -75,5 +76,6 @@ All endpoints require the `X-LiteLLM-Observatory-API-Key` header.
 - [Test Coverage](docs/TEST_COVERAGE.md) - What each test suite validates in LiteLLM deployments
 - [Adding a New Test Suite](docs/ADDING_TEST_SUITES.md) - Guide for creating custom test suites
 - [API Reference](docs/API_REFERENCE.md) - Complete API documentation with request/response examples
+- [Queue System](docs/QUEUE_SYSTEM.md) - Test queue, concurrency control, and duplicate detection
 - [Environment Variables](docs/ENVIRONMENT_VARIABLES.md) - Configuration variables reference
 - [Architecture](ARCHITECTURE.md) - Project structure and component overview

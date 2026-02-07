@@ -49,13 +49,15 @@ def test_run_test_slack_integration(client):
             with patch("litellm_observatory.auth.get_api_key_from_env", return_value=None):
                 response = client.post("/run-test", json=request_data)
 
-            # Verify immediate response
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "started"
-            assert "Test started. Results will be sent via Slack webhook" in data["results"]["message"]
-            assert data["results"]["deployment_url"] == "https://test-deployment.com"
-            assert data["results"]["models"] == ["gpt-4"]
+                # Verify immediate response
+                assert response.status_code == 200
+                data = response.json()
+                # Status can be "queued" or "started" depending on queue state
+                assert data["status"] in ["queued", "started"]
+                assert "Test" in data["results"]["message"] and "Slack webhook" in data["results"]["message"]
+                assert data["results"]["deployment_url"] == "https://test-deployment.com"
+                assert data["results"]["models"] == ["gpt-4"]
+                assert "request_id" in data["results"]
 
             # Wait for background task to complete
             # The mocked test suite should return immediately, but we need to give the async task time
