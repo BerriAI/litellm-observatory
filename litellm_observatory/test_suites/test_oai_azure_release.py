@@ -105,76 +105,21 @@ class TestOAIAzureRelease(BaseTestSuite):
         self.max_failure_rate = max_failure_rate
         self.request_interval_seconds = request_interval_seconds
 
+        # Track results per model
         self.results: Dict[str, List[Dict[str, Any]]] = {model: [] for model in models}
         self.start_time: Optional[datetime] = None
         self.end_time: Optional[datetime] = None
+        
+        # Reuse HTTP client across all requests to test client lifecycle behavior
+        self.client: Optional[httpx.AsyncClient] = None
 
-    async def _make_request(self, model: str) -> Dict[str, Any]:
-        """
-        Make a single chat completion request.
-
-        Args:
-            model: Model name to test
-
-        Returns:
-            Dictionary with request result
-        """
-        url = self.get_endpoint_url("/v1/chat/completions")
-        headers = self.get_headers()
-
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "user", "content": DEFAULT_TEST_MESSAGE}
-            ],
-            "max_tokens": DEFAULT_MAX_TOKENS,
-        }
-
-        request_start = time.time()
-        try:
-            async with httpx.AsyncClient(timeout=HTTP_REQUEST_TIMEOUT_SECONDS) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                request_duration = time.time() - request_start
-
-                result = {
-                    "timestamp": datetime.now().isoformat(),
-                    "model": model,
-                    "status_code": response.status_code,
-                    "success": response.status_code == HTTP_SUCCESS_STATUS_CODE,
-                    "duration_seconds": request_duration,
-                    "error": None,
-                }
-
-                if response.status_code == HTTP_SUCCESS_STATUS_CODE:
-                    try:
-                        response_data = response.json()
-                        result["response_data"] = response_data
-                    except Exception as e:
-                        result["error"] = f"Failed to parse response: {str(e)}"
-                        result["success"] = False
-                else:
-                    try:
-                        error_data = response.json()
-                        result["error"] = error_data
-                    except Exception:
-                        result["error"] = response.text
-
-                return result
-
-        except Exception as e:
-            request_duration = time.time() - request_start
-            return {
-                "timestamp": datetime.now().isoformat(),
-                "model": model,
-                "status_code": None,
-                "success": False,
-                "duration_seconds": request_duration,
-                "error": str(e),
-            }
-
+    # Test execution
     async def run(self, **params: Any) -> Dict[str, Any]:
         """
         Run the reliability test for the specified duration.
+
+        Makes continuous requests to the deployment, cycling through models, until the
+        duration is reached. Reuses a single HTTP client to test lifecycle behavior.
 
         Returns:
             Dictionary containing test results and statistics
@@ -182,6 +127,144 @@ class TestOAIAzureRelease(BaseTestSuite):
         self.start_time = datetime.now()
         end_time = self.start_time + timedelta(hours=self.duration_hours)
 
+        self._print_test_start_info(end_time)
+
+        model_index = 0
+        while datetime.now() < end_time:
+            model = self._get_next_model_to_test(model_index)
+            model_index += 1
+
+            result = await self._make_request(model)
+            self.results[model].append(result)
+
+            if self._should_report_progress(model):
+                self._print_progress(model)
+
+            await asyncio.sleep(self.request_interval_seconds)
+
+        self.end_time = datetime.now()
+        await self._cleanup_resources()
+
+        return self._calculate_results()
+
+    # Helper methods for making requests
+
+    async def _make_request(self, model: str) -> Dict[str, Any]:
+        """
+        Make a single chat completion request to the deployment.
+
+        Reuses the same HTTP client across all requests to properly test client lifecycle behavior.
+        This is critical for catching the regression where clients expire after 1 hour.
+
+        Args:
+            model: Model name to test
+
+        Returns:
+            Dictionary with request result including success status, duration, and any errors
+        """
+        url = self.get_endpoint_url("/v1/chat/completions")
+        headers = self.get_headers()
+        payload = self._build_chat_completion_payload(model)
+
+        request_start = time.time()
+        try:
+            self._ensure_http_client_exists()
+            response = await self.client.post(url, json=payload, headers=headers)
+            request_duration = time.time() - request_start
+
+            if response.status_code == HTTP_SUCCESS_STATUS_CODE:
+                return self._parse_successful_response(response, request_duration, model)
+            else:
+                return self._parse_error_response(response, request_duration, model)
+
+        except Exception as e:
+            request_duration = time.time() - request_start
+            return self._create_error_result(e, request_duration, model)
+
+    def _ensure_http_client_exists(self) -> None:
+        """Create HTTP client if it doesn't exist. Reused across all requests."""
+        if self.client is None:
+            self.client = httpx.AsyncClient(timeout=HTTP_REQUEST_TIMEOUT_SECONDS)
+
+    def _build_chat_completion_payload(self, model: str) -> Dict[str, Any]:
+        """Build the chat completion request payload for the given model."""
+        return {
+            "model": model,
+            "messages": [{"role": "user", "content": DEFAULT_TEST_MESSAGE}],
+            "max_tokens": DEFAULT_MAX_TOKENS,
+        }
+
+    def _parse_successful_response(self, response: httpx.Response, request_duration: float, model: str) -> Dict[str, Any]:
+        """Parse a successful HTTP response (status 200)."""
+        result = {
+            "timestamp": datetime.now().isoformat(),
+            "model": model,
+            "status_code": response.status_code,
+            "success": True,
+            "duration_seconds": request_duration,
+            "error": None,
+        }
+        
+        try:
+            response_data = response.json()
+            result["response_data"] = response_data
+        except Exception as e:
+            result["error"] = f"Failed to parse response: {str(e)}"
+            result["success"] = False
+        
+        return result
+
+    def _parse_error_response(self, response: httpx.Response, request_duration: float, model: str) -> Dict[str, Any]:
+        """Parse an error HTTP response (non-200 status)."""
+        result = {
+            "timestamp": datetime.now().isoformat(),
+            "model": model,
+            "status_code": response.status_code,
+            "success": False,
+            "duration_seconds": request_duration,
+            "error": None,
+        }
+        
+        try:
+            error_data = response.json()
+            result["error"] = error_data
+        except Exception:
+            result["error"] = response.text
+        
+        return result
+
+    def _create_error_result(self, exception: Exception, request_duration: float, model: str) -> Dict[str, Any]:
+        """Create a result dictionary for a request that raised an exception."""
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "model": model,
+            "status_code": None,
+            "success": False,
+            "duration_seconds": request_duration,
+            "error": str(exception),
+        }
+
+    # Helper methods for test execution
+
+    def _get_next_model_to_test(self, model_index: int) -> str:
+        """Cycle through models in round-robin fashion."""
+        return self.models[model_index % len(self.models)]
+
+    def _should_report_progress(self, model: str) -> bool:
+        """Check if we should print progress for this request."""
+        return len(self.results[model]) % PROGRESS_REPORT_INTERVAL == 0
+
+    def _print_progress(self, model: str) -> None:
+        """Print progress information including elapsed time and total requests."""
+        elapsed_hours = (datetime.now() - self.start_time).total_seconds() / 3600
+        total_requests = sum(len(results) for results in self.results.values())
+        print(
+            f"[{elapsed_hours:.2f}h elapsed] Total requests: {total_requests}, "
+            f"Current model: {model}"
+        )
+
+    def _print_test_start_info(self, end_time: datetime) -> None:
+        """Print test configuration at the start of the test."""
         print(
             f"Starting OpenAI/Azure release test for {self.duration_hours} hours"
             f" on models: {', '.join(self.models)}"
@@ -189,73 +272,78 @@ class TestOAIAzureRelease(BaseTestSuite):
         print(f"Test will run until: {end_time.isoformat()}")
         print(f"Maximum acceptable failure rate: {self.max_failure_rate * 100}%")
 
-        model_index = 0
-        while datetime.now() < end_time:
-            model = self.models[model_index % len(self.models)]
-            model_index += 1
+    async def _cleanup_resources(self) -> None:
+        """Close HTTP client to free resources."""
+        if self.client:
+            await self.client.aclose()
 
-            result = await self._make_request(model)
-            self.results[model].append(result)
+    # Helper methods for calculating statistics
 
-            if len(self.results[model]) % PROGRESS_REPORT_INTERVAL == 0:
-                elapsed = (datetime.now() - self.start_time).total_seconds() / 3600
-                total_requests = sum(len(results) for results in self.results.values())
-                print(
-                    f"[{elapsed:.2f}h elapsed] Total requests: {total_requests}, "
-                    f"Current model: {model}"
-                )
+    def _calculate_model_statistics(self, model: str, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate statistics for a single model."""
+        successes = sum(1 for r in results if r["success"])
+        failures = len(results) - successes
+        total = len(results)
 
-            await asyncio.sleep(self.request_interval_seconds)
+        failure_rate = failures / total if total > 0 else 0.0
+        avg_duration = (
+            sum(r["duration_seconds"] for r in results) / total if total > 0 else 0.0
+        )
 
-        self.end_time = datetime.now()
+        return {
+            "total_requests": total,
+            "successes": successes,
+            "failures": failures,
+            "failure_rate": failure_rate,
+            "failure_rate_percent": failure_rate * 100,
+            "avg_duration_seconds": avg_duration,
+        }
 
-        return self._calculate_results()
-
-    def _calculate_results(self) -> Dict[str, Any]:
-        """
-        Calculate test statistics and results.
-
-        Returns:
-            Dictionary with comprehensive test results
-        """
+    def _calculate_overall_statistics(self) -> tuple[int, int, int, float]:
+        """Calculate overall test statistics across all models."""
         total_requests = 0
         total_successes = 0
         total_failures = 0
 
-        model_stats = {}
         for model, results in self.results.items():
-            successes = sum(1 for r in results if r["success"])
-            failures = len(results) - successes
-            total = len(results)
-
-            total_requests += total
-            total_successes += successes
-            total_failures += failures
-
-            failure_rate = failures / total if total > 0 else 0.0
-            avg_duration = (
-                sum(r["duration_seconds"] for r in results) / total if total > 0 else 0.0
-            )
-
-            model_stats[model] = {
-                "total_requests": total,
-                "successes": successes,
-                "failures": failures,
-                "failure_rate": failure_rate,
-                "failure_rate_percent": failure_rate * 100,
-                "avg_duration_seconds": avg_duration,
-            }
+            model_stats = self._calculate_model_statistics(model, results)
+            total_requests += model_stats["total_requests"]
+            total_successes += model_stats["successes"]
+            total_failures += model_stats["failures"]
 
         overall_failure_rate = (
             total_failures / total_requests if total_requests > 0 else 0.0
         )
-        test_passed = overall_failure_rate < self.max_failure_rate
 
-        duration_seconds = (
-            (self.end_time - self.start_time).total_seconds()
-            if self.end_time and self.start_time
-            else 0
+        return total_requests, total_successes, total_failures, overall_failure_rate
+
+    def _calculate_test_duration(self) -> float:
+        """Calculate total test duration in seconds."""
+        if self.end_time and self.start_time:
+            return (self.end_time - self.start_time).total_seconds()
+        return 0.0
+
+    def _calculate_results(self) -> Dict[str, Any]:
+        """
+        Calculate comprehensive test statistics and results.
+
+        Aggregates results across all models and determines if the test passed
+        based on the overall failure rate.
+
+        Returns:
+            Dictionary with comprehensive test results including per-model and overall statistics
+        """
+        total_requests, total_successes, total_failures, overall_failure_rate = (
+            self._calculate_overall_statistics()
         )
+
+        model_stats = {
+            model: self._calculate_model_statistics(model, results)
+            for model, results in self.results.items()
+        }
+
+        test_passed = overall_failure_rate < self.max_failure_rate
+        duration_seconds = self._calculate_test_duration()
 
         return {
             "test_name": TEST_NAME,
