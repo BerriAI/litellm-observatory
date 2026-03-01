@@ -100,6 +100,14 @@ async def run_test(
             test_suite = test_suite_class(**test_params)
             results = await test_suite.run()
 
+            # Store results on the queued_test for later retrieval
+            queued_test.result = {
+                "test_passed": results.get("test_passed", False),
+                "failure_rate": results.get("overall_failure_rate", 0.0),
+                "total_requests": results.get("total_requests", 0),
+                "duration_hours": results.get("duration_hours", 0.0),
+            }
+
             error_message = None
             if not results.get("test_passed", False):
                 detailed_results = results.get("detailed_results", {})
@@ -114,6 +122,9 @@ async def run_test(
                         if error_message:
                             break
 
+            if error_message:
+                queued_test.error = error_message
+
             slack_webhook.send_test_result_notification(
                 test_name=results.get("test_name", queued_test.request.test_suite),
                 deployment_url=queued_test.request.deployment_url,
@@ -124,6 +135,7 @@ async def run_test(
                 error_message=error_message,
             )
         except Exception as e:
+            queued_test.error = str(e)
             slack_webhook.send_message(
                 text=f"❌ Test execution failed: {str(e)}\n"
                 f"Test: {queued_test.request.test_suite}\n"
@@ -153,6 +165,18 @@ async def run_test(
             "currently_running": queue_status["currently_running"],
         },
     )
+
+
+@app.get("/run-status/{request_id}")
+async def run_status(request_id: str, _: str = Depends(verify_api_key)):
+    """Get status and results for a specific test run by request_id."""
+    status = test_queue.get_test_status(request_id)
+    if status is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No test found with request_id '{request_id}'",
+        )
+    return status
 
 
 @app.get("/queue-status")

@@ -31,6 +31,8 @@ class QueuedTest:
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     task: Optional[asyncio.Task] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
 
 
 class TestQueue:
@@ -147,6 +149,33 @@ class TestQueue:
             }
             for request_id, test in self.running_tests.items()
         }
+
+    def get_test_status(self, request_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the status and results for a specific test by request_id.
+
+        Returns:
+            Dictionary with test info if found, None otherwise
+        """
+        for source in (self.running_tests, self.queued_tests, self.completed_tests):
+            if request_id in source:
+                test = source[request_id]
+                info: Dict[str, Any] = {
+                    "request_id": request_id,
+                    "status": test.status.value,
+                    "test_suite": test.request.test_suite,
+                    "deployment_url": test.request.deployment_url,
+                    "models": test.request.models,
+                    "queued_at": test.queued_at.isoformat(),
+                    "started_at": test.started_at.isoformat() if test.started_at else None,
+                    "completed_at": test.completed_at.isoformat() if test.completed_at else None,
+                }
+                if test.result is not None:
+                    info["result"] = test.result
+                if test.error is not None:
+                    info["error"] = test.error
+                return info
+        return None
 
     # Helper methods for request ID generation
 
