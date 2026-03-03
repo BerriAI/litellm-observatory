@@ -65,6 +65,9 @@ class SlackWebhook:
         total_requests: int,
         duration_hours: float,
         error_message: Optional[str] = None,
+        latency_percentiles: Optional[Dict[str, float]] = None,
+        error_categories: Optional[Dict[str, int]] = None,
+        first_failure: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
         Send a formatted test result notification to Slack.
@@ -77,6 +80,9 @@ class SlackWebhook:
             total_requests: Total number of requests made
             duration_hours: Test duration in hours
             error_message: Optional error message if test failed
+            latency_percentiles: Optional dict with p50, p95, p99, max latencies
+            error_categories: Optional dict mapping error category to count
+            first_failure: Optional dict with first failure timing info
 
         Returns:
             True if notification was sent successfully, False otherwise
@@ -113,6 +119,25 @@ class SlackWebhook:
             },
         ]
 
+        # Latency section (always shown when available)
+        if latency_percentiles:
+            def _fmt_latency(val: float) -> str:
+                if val < 1.0:
+                    return f"{val * 1000:.0f}ms"
+                return f"{val:.2f}s"
+
+            blocks.append(
+                {
+                    "type": "section",
+                    "fields": [
+                        {"type": "mrkdwn", "text": f"*p50 Latency:*\n{_fmt_latency(latency_percentiles.get('p50', 0))}"},
+                        {"type": "mrkdwn", "text": f"*p95 Latency:*\n{_fmt_latency(latency_percentiles.get('p95', 0))}"},
+                        {"type": "mrkdwn", "text": f"*p99 Latency:*\n{_fmt_latency(latency_percentiles.get('p99', 0))}"},
+                        {"type": "mrkdwn", "text": f"*Max Latency:*\n{_fmt_latency(latency_percentiles.get('max', 0))}"},
+                    ],
+                }
+            )
+
         if not test_passed and error_message:
             blocks.append(
                 {
@@ -124,6 +149,37 @@ class SlackWebhook:
                 }
             )
 
+        # Error breakdown (failure only)
+        if not test_passed and error_categories:
+            sorted_cats = sorted(error_categories.items(), key=lambda x: x[1], reverse=True)
+            lines = [f"{cat}: {count}" for cat, count in sorted_cats]
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Error Breakdown:*\n```{chr(10).join(lines)}```",
+                    },
+                }
+            )
+
+        # First failure timing (failure only)
+        if not test_passed and first_failure:
+            minutes = first_failure.get("minutes_after_start")
+            model = first_failure.get("model", "unknown")
+            snippet = first_failure.get("error_snippet", "")
+            timing_text = f"{minutes:.1f} min after start" if minutes is not None else "unknown"
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*First Failure:* {timing_text} — model: `{model}`\n```{snippet[:150]}```",
+                    },
+                }
+            )
+
+        # Plaintext fallback
         text = (
             f"{status_emoji} {test_name} - {status_text}\n"
             f"Deployment: {deployment_url}\n"
@@ -131,8 +187,21 @@ class SlackWebhook:
             f"Total Requests: {total_requests:,}\n"
             f"Failure Rate: {failure_rate_percent:.2f}%"
         )
+        if latency_percentiles:
+            text += (
+                f"\nLatency — p50: {latency_percentiles.get('p50', 0):.4f}s"
+                f" | p95: {latency_percentiles.get('p95', 0):.4f}s"
+                f" | p99: {latency_percentiles.get('p99', 0):.4f}s"
+                f" | max: {latency_percentiles.get('max', 0):.4f}s"
+            )
         if not test_passed and error_message:
             text += f"\n\nError: {error_message}"
+        if not test_passed and error_categories:
+            cats = ", ".join(f"{cat}: {count}" for cat, count in sorted(error_categories.items(), key=lambda x: x[1], reverse=True))
+            text += f"\nError Breakdown: {cats}"
+        if not test_passed and first_failure:
+            minutes = first_failure.get("minutes_after_start")
+            text += f"\nFirst Failure: {minutes:.1f} min after start — {first_failure.get('model', 'unknown')}" if minutes is not None else ""
 
         return self.send_message(
             text=text,
