@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from litellm_observatory.test_suites import (
     TestFakeBedrockRelease,
     TestFakeVertexAIRelease,
+    TestMCPRelease,
     TestMockSingleRequest,
     TestOAIAzureRelease,
 )
@@ -42,6 +43,7 @@ class TestResultResponse(BaseModel):
 TEST_SUITE_REGISTRY = {
     "TestFakeBedrockRelease": TestFakeBedrockRelease,
     "TestFakeVertexAIRelease": TestFakeVertexAIRelease,
+    "TestMCPRelease": TestMCPRelease,
     "TestMockSingleRequest": TestMockSingleRequest,
     "TestOAIAzureRelease": TestOAIAzureRelease,
 }
