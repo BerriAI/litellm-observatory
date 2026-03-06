@@ -54,6 +54,9 @@ class TestMCPRelease(BaseTestSuite):
         deployment_url: str,
         api_key: str,
         models: List[str],
+        duration_hours: Optional[float] = None,
+        max_failure_rate: Optional[float] = None,
+        request_interval_seconds: Optional[float] = None,
     ):
         """
         Initialize the MCP release test.
