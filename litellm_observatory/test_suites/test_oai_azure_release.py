@@ -37,6 +37,7 @@ Expected Behavior:
 """
 
 import asyncio
+import math
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -290,7 +291,7 @@ class TestOAIAzureRelease(BaseTestSuite):
             sum(r["duration_seconds"] for r in results) / total if total > 0 else 0.0
         )
 
-        return {
+        stats = {
             "total_requests": total,
             "successes": successes,
             "failures": failures,
@@ -298,6 +299,12 @@ class TestOAIAzureRelease(BaseTestSuite):
             "failure_rate_percent": failure_rate * 100,
             "avg_duration_seconds": avg_duration,
         }
+
+        durations = [r["duration_seconds"] for r in results if r.get("duration_seconds") is not None]
+        if durations:
+            stats["latency_percentiles"] = self._calculate_latency_percentiles(durations)
+
+        return stats
 
     def _calculate_overall_statistics(self) -> tuple[int, int, int, float]:
         """Calculate overall test statistics across all models."""
@@ -323,6 +330,143 @@ class TestOAIAzureRelease(BaseTestSuite):
             return (self.end_time - self.start_time).total_seconds()
         return 0.0
 
+    def _calculate_latency_percentiles(self, durations: List[float]) -> Dict[str, float]:
+        """
+        Compute p50, p95, p99, and max latency from a list of durations.
+
+        Uses sorted-index percentile calculation (no external dependencies).
+        """
+        if not durations:
+            return {"p50": 0.0, "p95": 0.0, "p99": 0.0, "max": 0.0}
+
+        sorted_d = sorted(durations)
+        n = len(sorted_d)
+
+        def _percentile(p: float) -> float:
+            idx = (p / 100.0) * (n - 1)
+            lower = int(math.floor(idx))
+            upper = min(lower + 1, n - 1)
+            frac = idx - lower
+            return sorted_d[lower] + frac * (sorted_d[upper] - sorted_d[lower])
+
+        return {
+            "p50": round(_percentile(50), 4),
+            "p95": round(_percentile(95), 4),
+            "p99": round(_percentile(99), 4),
+            "max": round(sorted_d[-1], 4),
+        }
+
+    def _calculate_latency_over_time(self) -> List[Dict[str, Any]]:
+        """
+        Bucket all requests into 10-minute windows and compute per-bucket stats.
+
+        Returns a list of dicts with: window_start, avg_latency, p95_latency,
+        request_count, failure_count.
+        """
+        all_results: List[Dict[str, Any]] = []
+        for model_results in self.results.values():
+            all_results.extend(model_results)
+
+        if not all_results or not self.start_time:
+            return []
+
+        bucket_seconds = 600  # 10 minutes
+        buckets: Dict[int, List[Dict[str, Any]]] = {}
+
+        for r in all_results:
+            try:
+                ts = datetime.fromisoformat(r["timestamp"])
+            except (KeyError, ValueError):
+                continue
+            offset = (ts - self.start_time).total_seconds()
+            bucket_idx = int(offset // bucket_seconds)
+            buckets.setdefault(bucket_idx, []).append(r)
+
+        result = []
+        for idx in sorted(buckets.keys()):
+            items = buckets[idx]
+            durations = [r["duration_seconds"] for r in items if r.get("duration_seconds") is not None]
+            failures = sum(1 for r in items if not r.get("success", True))
+            avg_lat = sum(durations) / len(durations) if durations else 0.0
+            p95_lat = self._calculate_latency_percentiles(durations).get("p95", 0.0) if durations else 0.0
+            window_start = self.start_time + timedelta(seconds=idx * bucket_seconds)
+
+            result.append({
+                "window_start": window_start.isoformat(),
+                "avg_latency": round(avg_lat, 4),
+                "p95_latency": round(p95_lat, 4),
+                "request_count": len(items),
+                "failure_count": failures,
+            })
+
+        return result
+
+    def _categorize_errors(self) -> Dict[str, int]:
+        """
+        Classify failures into categories based on error string / status code.
+
+        Categories: timeout, connection_refused, client_closed, 4xx, 5xx, other.
+        """
+        categories: Dict[str, int] = {}
+
+        for model_results in self.results.values():
+            for r in model_results:
+                if r.get("success", True):
+                    continue
+
+                error_str = str(r.get("error", "")).lower()
+                status_code = r.get("status_code")
+
+                if "timeout" in error_str or "timed out" in error_str:
+                    cat = "timeout"
+                elif "connection refused" in error_str or "connect call failed" in error_str:
+                    cat = "connection_refused"
+                elif "client has been closed" in error_str or "client closed" in error_str:
+                    cat = "client_closed"
+                elif isinstance(status_code, int) and 400 <= status_code < 500:
+                    cat = "4xx"
+                elif isinstance(status_code, int) and 500 <= status_code < 600:
+                    cat = "5xx"
+                else:
+                    cat = "other"
+
+                categories[cat] = categories.get(cat, 0) + 1
+
+        return categories
+
+    def _calculate_first_failure_timing(self) -> Optional[Dict[str, Any]]:
+        """
+        Find the earliest failure across all models.
+
+        Returns dict with timestamp, minutes_after_start, model, error_snippet
+        or None if no failures occurred.
+        """
+        earliest: Optional[Dict[str, Any]] = None
+        earliest_ts: Optional[datetime] = None
+
+        for model, model_results in self.results.items():
+            for r in model_results:
+                if r.get("success", True):
+                    continue
+                try:
+                    ts = datetime.fromisoformat(r["timestamp"])
+                except (KeyError, ValueError):
+                    continue
+
+                if earliest_ts is None or ts < earliest_ts:
+                    earliest_ts = ts
+                    error_raw = str(r.get("error", ""))
+                    earliest = {
+                        "timestamp": r["timestamp"],
+                        "minutes_after_start": round(
+                            (ts - self.start_time).total_seconds() / 60, 2
+                        ) if self.start_time else None,
+                        "model": model,
+                        "error_snippet": error_raw[:200],
+                    }
+
+        return earliest
+
     def _calculate_results(self) -> Dict[str, Any]:
         """
         Calculate comprehensive test statistics and results.
@@ -345,6 +489,18 @@ class TestOAIAzureRelease(BaseTestSuite):
         test_passed = overall_failure_rate < self.max_failure_rate
         duration_seconds = self._calculate_test_duration()
 
+        # Compute enhanced metrics
+        all_durations = [
+            r["duration_seconds"]
+            for model_results in self.results.values()
+            for r in model_results
+            if r.get("duration_seconds") is not None
+        ]
+        latency_percentiles = self._calculate_latency_percentiles(all_durations)
+        latency_over_time = self._calculate_latency_over_time()
+        error_categories = self._categorize_errors()
+        first_failure = self._calculate_first_failure_timing()
+
         return {
             "test_name": TEST_NAME,
             "start_time": self.start_time.isoformat() if self.start_time else None,
@@ -361,5 +517,9 @@ class TestOAIAzureRelease(BaseTestSuite):
             "max_failure_rate_percent": self.max_failure_rate * 100,
             "test_passed": test_passed,
             "model_statistics": model_stats,
+            "latency_percentiles": latency_percentiles,
+            "latency_over_time": latency_over_time,
+            "error_categories": error_categories,
+            "first_failure": first_failure,
             "detailed_results": self.results,
         }

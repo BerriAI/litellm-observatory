@@ -106,6 +106,9 @@ async def run_test(
                 "failure_rate": results.get("overall_failure_rate", 0.0),
                 "total_requests": results.get("total_requests", 0),
                 "duration_hours": results.get("duration_hours", 0.0),
+                "latency_percentiles": results.get("latency_percentiles"),
+                "error_categories": results.get("error_categories"),
+                "first_failure": results.get("first_failure"),
             }
 
             error_message = None
@@ -133,6 +136,9 @@ async def run_test(
                 total_requests=results.get("total_requests", 0),
                 duration_hours=results.get("duration_hours", 0.0),
                 error_message=error_message,
+                latency_percentiles=results.get("latency_percentiles"),
+                error_categories=results.get("error_categories"),
+                first_failure=results.get("first_failure"),
             )
         except Exception as e:
             queued_test.error = str(e)
