@@ -107,6 +107,26 @@ Returns current status, and `expected_completion_at` (ISO timestamp) for running
 
 All endpoints require the `X-LiteLLM-Observatory-API-Key` header.
 
+## Versioning
+
+The deployed version is exposed on the `/health` endpoint:
+
+```bash
+curl http://localhost:8000/health \
+  -H "X-LiteLLM-Observatory-API-Key: your-api-key"
+# → {"status": "healthy", "version": "0.2.0"}
+```
+
+To release a new version:
+
+```bash
+./scripts/bump_version.sh patch   # 0.2.0 → 0.2.1
+./scripts/bump_version.sh minor   # 0.2.0 → 0.3.0
+./scripts/bump_version.sh major   # 0.2.0 → 1.0.0
+```
+
+This bumps `pyproject.toml` via Poetry, syncs `APP_VERSION` in `server.py`, commits, tags (`v0.2.1`), and pushes in one step.
+
 ## Documentation
 
 - [Test Coverage](docs/TEST_COVERAGE.md) - What each test suite validates in LiteLLM deployments
