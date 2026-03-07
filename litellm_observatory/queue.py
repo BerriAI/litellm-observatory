@@ -151,6 +151,33 @@ class TestQueue:
             for request_id, test in self.running_tests.items()
         }
 
+    def get_all_jobs(self) -> Dict[str, Any]:
+        """
+        Get all jobs: running, queued, and recently completed, with full details.
+        """
+        def _job_info(test) -> Dict[str, Any]:
+            return {
+                "request_id": test.request_id,
+                "test_suite": test.request.test_suite,
+                "deployment_url": test.request.deployment_url,
+                "models": test.request.models,
+                "status": test.status.value,
+                "queued_at": test.queued_at.isoformat(),
+                "started_at": test.started_at.isoformat() if test.started_at else None,
+                "completed_at": test.completed_at.isoformat() if test.completed_at else None,
+                "expected_completion_at": (
+                    (test.started_at + timedelta(hours=test.request.duration_hours)).isoformat()
+                    if test.started_at and test.request.duration_hours is not None
+                    else None
+                ),
+            }
+
+        return {
+            "running": [_job_info(t) for t in self.running_tests.values()],
+            "queued": [_job_info(t) for t in self.queued_tests.values()],
+            "recently_completed": [_job_info(t) for t in self.completed_tests.values()],
+        }
+
     def get_test_status(self, request_id: str) -> Optional[Dict[str, Any]]:
         """
         Get the status and results for a specific test by request_id.

@@ -193,6 +193,12 @@ async def run_status(request_id: str, _: str = Depends(verify_api_key)):
     return status
 
 
+@app.get("/jobs")
+async def jobs(_: str = Depends(verify_api_key)):
+    """Get all jobs: running, queued, and recently completed, with full details."""
+    return test_queue.get_all_jobs()
+
+
 @app.get("/queue-status")
 async def queue_status(_: str = Depends(verify_api_key)):
     """Get current queue status and running tests."""
