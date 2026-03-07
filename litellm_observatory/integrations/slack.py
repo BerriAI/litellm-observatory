@@ -97,7 +97,7 @@ class SlackWebhook:
 
         fields = [
             {"type": "mrkdwn", "text": f"*Deployment:*\n{deployment_url}"},
-            {"type": "mrkdwn", "text": f"*Duration:*\n{duration_fmt}"},
+            {"type": "mrkdwn", "text": f"*Duration:*\n{duration_fmt} (hh:mm)"},
             {"type": "mrkdwn", "text": f"*Total Requests:*\n{total_requests:,}"},
             {"type": "mrkdwn", "text": f"*Failure Rate:*\n{failure_rate_percent:.2f}%"},
         ]
