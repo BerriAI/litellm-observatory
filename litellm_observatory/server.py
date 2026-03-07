@@ -1,7 +1,10 @@
 """FastAPI server for running test suites against LiteLLM deployments."""
 
 import os
+from importlib.metadata import version as pkg_version
 from typing import List, Union
+
+APP_VERSION = pkg_version("litellm-observatory")
 
 from fastapi import Body, Depends, FastAPI, HTTPException
 
@@ -13,7 +16,7 @@ from litellm_observatory.queue import TestQueue
 app = FastAPI(
     title="LiteLLM Observatory",
     description="Testing orchestrator for LiteLLM deployments",
-    version="0.1.0",
+    version=APP_VERSION,
 )
 slack_webhook = SlackWebhook()
 
@@ -27,7 +30,7 @@ async def root(_: str = Depends(verify_api_key)):
     """Root endpoint with API information."""
     return {
         "name": "LiteLLM Observatory",
-        "version": "0.1.0",
+        "version": APP_VERSION,
         "available_test_suites": list(TEST_SUITE_REGISTRY.keys()),
     }
 
@@ -35,7 +38,7 @@ async def root(_: str = Depends(verify_api_key)):
 @app.get("/health")
 async def health(_: str = Depends(verify_api_key)):
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": APP_VERSION}
 
 
 def _validate_request(request: RunTestRequest) -> None:

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "litellm-observatory"
-version = "0.1.0"
+version = "0.2.0"
 description = "End-to-end testing suite for LiteLLM deployments - provider tests, performance metrics, and API validation"
 authors = ["Alexsander <alexsander@berri.ai>"]
 readme = "README.md"
