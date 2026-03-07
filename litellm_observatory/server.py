@@ -1,8 +1,9 @@
 """FastAPI server for running test suites against LiteLLM deployments."""
 
 import os
+from typing import List, Union
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, HTTPException
 
 from litellm_observatory.auth import verify_api_key
 from litellm_observatory.integrations import SlackWebhook
@@ -37,20 +38,8 @@ async def health(_: str = Depends(verify_api_key)):
     return {"status": "healthy"}
 
 
-@app.post("/run-test", response_model=TestResultResponse)
-async def run_test(
-    request: RunTestRequest, _: str = Depends(verify_api_key)
-) -> TestResultResponse:
-    """
-    Run a test suite against a LiteLLM deployment.
-
-    This endpoint triggers a test suite to run against the specified deployment.
-    The test will run for the specified duration and return results.
-
-    Only test suites registered in TEST_SUITE_REGISTRY can be executed.
-    Duplicate requests (same test_suite, deployment_url, models, and parameters) are detected
-    and will return information about the existing test.
-    """
+def _validate_request(request: RunTestRequest) -> None:
+    """Validate a single test request, raising HTTPException on failure."""
     if request.test_suite not in TEST_SUITE_REGISTRY:
         available_suites = list(TEST_SUITE_REGISTRY.keys())
         raise HTTPException(
@@ -60,8 +49,6 @@ async def run_test(
                 f"Only the following test suites can be executed: {available_suites}"
             ),
         )
-
-    # Check for duplicate requests
     if test_queue.is_duplicate(request):
         duplicate_info = test_queue.get_duplicate_info(request)
         raise HTTPException(
@@ -71,7 +58,6 @@ async def run_test(
                 "duplicate_info": duplicate_info,
             },
         )
-
     if not slack_webhook.webhook_url:
         raise HTTPException(
             status_code=400,
@@ -79,6 +65,9 @@ async def run_test(
             "Test results will be sent via Slack notification.",
         )
 
+
+async def _enqueue_request(request: RunTestRequest) -> TestResultResponse:
+    """Build a runner closure and enqueue a single validated request."""
     test_suite_class = TEST_SUITE_REGISTRY[request.test_suite]
 
     test_params = {
@@ -86,7 +75,6 @@ async def run_test(
         "api_key": request.api_key,
         "models": request.models,
     }
-
     if request.duration_hours is not None:
         test_params["duration_hours"] = request.duration_hours
     if request.max_failure_rate is not None:
@@ -100,7 +88,6 @@ async def run_test(
             test_suite = test_suite_class(**test_params)
             results = await test_suite.run()
 
-            # Store results on the queued_test for later retrieval
             queued_test.result = {
                 "test_passed": results.get("test_passed", False),
                 "failure_rate": results.get("overall_failure_rate", 0.0),
@@ -152,13 +139,9 @@ async def run_test(
                 icon_emoji=":warning:",
             )
 
-    # Enqueue the test
     queued_test = await test_queue.enqueue(request, run_test_and_notify)
-
     queue_status = test_queue.get_queue_status()
-    status_message = "queued"
-    if queued_test.status.value == "running":
-        status_message = "started"
+    status_message = "started" if queued_test.status.value == "running" else "queued"
 
     return TestResultResponse(
         status=status_message,
@@ -173,6 +156,27 @@ async def run_test(
             "currently_running": queue_status["currently_running"],
         },
     )
+
+
+@app.post("/run-test")
+async def run_test(
+    request: Union[RunTestRequest, List[RunTestRequest]] = Body(...),
+    _: str = Depends(verify_api_key),
+) -> Union[TestResultResponse, List[TestResultResponse]]:
+    """
+    Run one or more test suites against a LiteLLM deployment.
+
+    Accepts either a single request object or an array of request objects.
+    When an array is provided, all requests are validated before any are enqueued —
+    if any request is invalid, none will be enqueued.
+    """
+    if isinstance(request, list):
+        for req in request:
+            _validate_request(req)
+        return [await _enqueue_request(req) for req in request]
+
+    _validate_request(request)
+    return await _enqueue_request(request)
 
 
 @app.get("/run-status/{request_id}")
