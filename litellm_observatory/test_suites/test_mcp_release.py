@@ -87,12 +87,12 @@ class TestMCPRelease(BaseTestSuite):
 
         server_index = 0
         while datetime.now() < end_time:
-            tools = await self._fetch_tools()
+            tools, fetch_duration = await self._fetch_tools()
 
             if self.mcp_server_names:
                 server = self._get_next_server(server_index)
                 server_index += 1
-                result = self._check_server_tools(server, tools)
+                result = self._check_server_tools(server, tools, fetch_duration)
                 self.results[server].append(result)
 
                 if self._should_report_progress(server):
@@ -102,7 +102,7 @@ class TestMCPRelease(BaseTestSuite):
                     "timestamp": datetime.now().isoformat(),
                     "model": "_tools_endpoint",
                     "success": tools is not None,
-                    "duration_seconds": 0.0,
+                    "duration_seconds": fetch_duration,
                     "error": None if tools is not None else "Failed to fetch tools",
                 }
                 self.results["_tools_endpoint"].append(result)
@@ -116,23 +116,25 @@ class TestMCPRelease(BaseTestSuite):
 
     # Request methods
 
-    async def _fetch_tools(self) -> Optional[List[Dict[str, Any]]]:
-        """GET /v1/mcp/tools and return the tools list, or None on failure."""
+    async def _fetch_tools(self) -> tuple[Optional[List[Dict[str, Any]]], float]:
+        """GET /v1/mcp/tools and return (tools list, duration_seconds). tools is None on failure."""
         url = self.get_endpoint_url(MCP_TOOLS_LIST_ENDPOINT)
         headers = self.get_headers()
+        request_start = time.time()
         try:
             self._ensure_http_client_exists()
             response = await self.client.get(url, headers=headers)
+            duration = time.time() - request_start
             if response.status_code != HTTP_SUCCESS_STATUS_CODE:
-                return None
+                return None, duration
             data = response.json()
             tools = data.get("tools", [])
-            return tools if isinstance(tools, list) else None
+            return (tools if isinstance(tools, list) else None), duration
         except Exception:
-            return None
+            return None, time.time() - request_start
 
     def _check_server_tools(
-        self, server_name: str, tools: Optional[List[Dict[str, Any]]]
+        self, server_name: str, tools: Optional[List[Dict[str, Any]]], duration_seconds: float
     ) -> Dict[str, Any]:
         """Check whether tools are available for the given MCP server name."""
         timestamp = datetime.now().isoformat()
@@ -142,7 +144,7 @@ class TestMCPRelease(BaseTestSuite):
                 "timestamp": timestamp,
                 "model": server_name,
                 "success": False,
-                "duration_seconds": 0.0,
+                "duration_seconds": duration_seconds,
                 "error": "Failed to fetch tools list",
             }
 
@@ -155,7 +157,7 @@ class TestMCPRelease(BaseTestSuite):
             "timestamp": timestamp,
             "model": server_name,
             "success": passed,
-            "duration_seconds": 0.0,
+            "duration_seconds": duration_seconds,
             "matching_tool_count": len(matching),
             "error": None if passed else f"No tools found for MCP server '{server_name}'",
         }
