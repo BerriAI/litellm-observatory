@@ -1,10 +1,9 @@
 """FastAPI server for running test suites against LiteLLM deployments."""
 
 import os
-from importlib.metadata import version as pkg_version
 from typing import List, Union
 
-APP_VERSION = pkg_version("litellm-observatory")
+APP_VERSION = "0.2.0"
 
 from fastapi import Body, Depends, FastAPI, HTTPException
 
