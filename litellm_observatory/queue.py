@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -169,6 +169,11 @@ class TestQueue:
                     "queued_at": test.queued_at.isoformat(),
                     "started_at": test.started_at.isoformat() if test.started_at else None,
                     "completed_at": test.completed_at.isoformat() if test.completed_at else None,
+                    "expected_completion_at": (
+                        (test.started_at + timedelta(hours=test.request.duration_hours)).isoformat()
+                        if test.started_at and test.request.duration_hours is not None
+                        else None
+                    ),
                 }
                 if test.result is not None:
                     info["result"] = test.result
