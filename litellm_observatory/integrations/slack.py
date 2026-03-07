@@ -92,10 +92,12 @@ class SlackWebhook:
         status_emoji = "✅" if test_passed else "❌"
         status_text = "PASSED" if test_passed else "FAILED"
         failure_rate_percent = failure_rate * 100
+        total_minutes = int(round(duration_hours * 60))
+        duration_fmt = f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
 
         fields = [
             {"type": "mrkdwn", "text": f"*Deployment:*\n{deployment_url}"},
-            {"type": "mrkdwn", "text": f"*Duration:*\n{duration_hours:.2f} hours"},
+            {"type": "mrkdwn", "text": f"*Duration:*\n{duration_fmt}"},
             {"type": "mrkdwn", "text": f"*Total Requests:*\n{total_requests:,}"},
             {"type": "mrkdwn", "text": f"*Failure Rate:*\n{failure_rate_percent:.2f}%"},
         ]
@@ -179,7 +181,7 @@ class SlackWebhook:
         text = (
             f"{status_emoji} {test_name} - {status_text}\n"
             f"Deployment: {deployment_url}\n"
-            f"Duration: {duration_hours:.2f} hours\n"
+            f"Duration: {duration_fmt}\n"
             f"Total Requests: {total_requests:,}\n"
             f"Failure Rate: {failure_rate_percent:.2f}%"
         )
