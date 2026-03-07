@@ -139,6 +139,8 @@ async def run_test(
                 latency_percentiles=results.get("latency_percentiles"),
                 error_categories=results.get("error_categories"),
                 first_failure=results.get("first_failure"),
+                models=results.get("models_tested"),
+                test_suite=queued_test.request.test_suite,
             )
         except Exception as e:
             queued_test.error = str(e)

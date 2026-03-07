@@ -68,6 +68,8 @@ class SlackWebhook:
         latency_percentiles: Optional[Dict[str, float]] = None,
         error_categories: Optional[Dict[str, int]] = None,
         first_failure: Optional[Dict[str, Any]] = None,
+        models: Optional[list] = None,
+        test_suite: Optional[str] = None,
     ) -> bool:
         """
         Send a formatted test result notification to Slack.
@@ -91,6 +93,17 @@ class SlackWebhook:
         status_text = "PASSED" if test_passed else "FAILED"
         failure_rate_percent = failure_rate * 100
 
+        fields = [
+            {"type": "mrkdwn", "text": f"*Deployment:*\n{deployment_url}"},
+            {"type": "mrkdwn", "text": f"*Duration:*\n{duration_hours:.2f} hours"},
+            {"type": "mrkdwn", "text": f"*Total Requests:*\n{total_requests:,}"},
+            {"type": "mrkdwn", "text": f"*Failure Rate:*\n{failure_rate_percent:.2f}%"},
+        ]
+        if test_suite:
+            fields.append({"type": "mrkdwn", "text": f"*Test Suite:*\n{test_suite}"})
+        if models:
+            fields.append({"type": "mrkdwn", "text": f"*Models:*\n{', '.join(models)}"})
+
         blocks = [
             {
                 "type": "header",
@@ -99,24 +112,7 @@ class SlackWebhook:
                     "text": f"{status_emoji} {test_name} - {status_text}",
                 },
             },
-            {
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn", "text": f"*Deployment:*\n{deployment_url}"},
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Duration:*\n{duration_hours:.2f} hours",
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Total Requests:*\n{total_requests:,}",
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Failure Rate:*\n{failure_rate_percent:.2f}%",
-                    },
-                ],
-            },
+            {"type": "section", "fields": fields},
         ]
 
         # Latency section (always shown when available)
