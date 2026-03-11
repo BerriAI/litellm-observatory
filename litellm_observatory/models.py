@@ -5,11 +5,14 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from litellm_observatory.test_suites import (
+    TestEmbeddingsRelease,
     TestFakeBedrockRelease,
     TestFakeVertexAIRelease,
+    TestMessagesRelease,
     TestMCPRelease,
     TestMockSingleRequest,
     TestOAIAzureRelease,
+    TestResponsesRelease,
 )
 
 
@@ -41,9 +44,12 @@ class TestResultResponse(BaseModel):
 
 # Registry of available test suites
 TEST_SUITE_REGISTRY = {
+    "TestEmbeddingsRelease": TestEmbeddingsRelease,
     "TestFakeBedrockRelease": TestFakeBedrockRelease,
     "TestFakeVertexAIRelease": TestFakeVertexAIRelease,
+    "TestMessagesRelease": TestMessagesRelease,
     "TestMCPRelease": TestMCPRelease,
     "TestMockSingleRequest": TestMockSingleRequest,
     "TestOAIAzureRelease": TestOAIAzureRelease,
+    "TestResponsesRelease": TestResponsesRelease,
 }
