@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -26,6 +26,7 @@ class QueuedTest:
 
     request: RunTestRequest
     request_id: str
+    test_runner: Any = None
     status: TestStatus = TestStatus.QUEUED
     queued_at: datetime = field(default_factory=datetime.now)
     started_at: Optional[datetime] = None
@@ -65,13 +66,13 @@ class TestQueue:
             QueuedTest instance representing the queued test
         """
         request_id = self._generate_request_id(request)
-        queued_test = QueuedTest(request=request, request_id=request_id)
+        queued_test = QueuedTest(request=request, request_id=request_id, test_runner=test_runner)
 
         self.queued_tests[request_id] = queued_test
         await self.queue.put(queued_test)
 
         if self._queue_processor_task is None or self._queue_processor_task.done():
-            self._queue_processor_task = asyncio.create_task(self._process_queue(test_runner))
+            self._queue_processor_task = asyncio.create_task(self._process_queue())
 
         return queued_test
 
@@ -150,6 +151,33 @@ class TestQueue:
             for request_id, test in self.running_tests.items()
         }
 
+    def get_all_jobs(self) -> Dict[str, Any]:
+        """
+        Get all jobs: running, queued, and recently completed, with full details.
+        """
+        def _job_info(test) -> Dict[str, Any]:
+            return {
+                "request_id": test.request_id,
+                "test_suite": test.request.test_suite,
+                "deployment_url": test.request.deployment_url,
+                "models": test.request.models,
+                "status": test.status.value,
+                "queued_at": test.queued_at.isoformat(),
+                "started_at": test.started_at.isoformat() if test.started_at else None,
+                "completed_at": test.completed_at.isoformat() if test.completed_at else None,
+                "expected_completion_at": (
+                    (test.started_at + timedelta(hours=test.request.duration_hours)).isoformat()
+                    if test.started_at and test.request.duration_hours is not None
+                    else None
+                ),
+            }
+
+        return {
+            "running": [_job_info(t) for t in self.running_tests.values()],
+            "queued": [_job_info(t) for t in self.queued_tests.values()],
+            "recently_completed": [_job_info(t) for t in self.completed_tests.values()],
+        }
+
     def get_test_status(self, request_id: str) -> Optional[Dict[str, Any]]:
         """
         Get the status and results for a specific test by request_id.
@@ -169,6 +197,11 @@ class TestQueue:
                     "queued_at": test.queued_at.isoformat(),
                     "started_at": test.started_at.isoformat() if test.started_at else None,
                     "completed_at": test.completed_at.isoformat() if test.completed_at else None,
+                    "expected_completion_at": (
+                        (test.started_at + timedelta(hours=test.request.duration_hours)).isoformat()
+                        if test.started_at and test.request.duration_hours is not None
+                        else None
+                    ),
                 }
                 if test.result is not None:
                     info["result"] = test.result
@@ -206,7 +239,7 @@ class TestQueue:
 
     # Helper methods for queue processing
 
-    async def _process_queue(self, test_runner: callable):
+    async def _process_queue(self):
         """Process the queue, running tests up to the concurrency limit."""
         while True:
             queued_test = None
@@ -220,7 +253,7 @@ class TestQueue:
                 self.queued_tests.pop(queued_test.request_id, None)
 
                 task = asyncio.create_task(
-                    self._run_test_with_cleanup(queued_test, test_runner)
+                    self._run_test_with_cleanup(queued_test)
                 )
                 queued_test.task = task
 
@@ -234,10 +267,10 @@ class TestQueue:
                 if self.semaphore.locked():
                     self.semaphore.release()
 
-    async def _run_test_with_cleanup(self, queued_test: QueuedTest, test_runner: callable):
+    async def _run_test_with_cleanup(self, queued_test: QueuedTest):
         """Run a test and clean up resources."""
         try:
-            await test_runner(queued_test)
+            await queued_test.test_runner(queued_test)
             queued_test.status = TestStatus.COMPLETED
         except Exception:
             queued_test.status = TestStatus.FAILED
